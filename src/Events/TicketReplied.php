@@ -12,21 +12,21 @@ class TicketReplied
     use Dispatchable, SerializesModels;
 
     /**
-     * The ticket instance.
-     *
-     * @var \Wiensa\SupportTicket\Models\Ticket
+     * @var Ticket
      */
     public $ticket;
 
     /**
-     * The ticket reply instance.
-     *
-     * @var \Wiensa\SupportTicket\Models\TicketReply
+     * @var TicketReply
      */
     public $reply;
 
     /**
      * Create a new event instance.
+     *
+     * @param Ticket $ticket
+     * @param TicketReply $reply
+     * @return void
      */
     public function __construct(Ticket $ticket, TicketReply $reply)
     {

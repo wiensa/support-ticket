@@ -6,7 +6,7 @@ use Wiensa\SupportTicket\Models\Ticket;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class TicketClosed
+class TicketReopened
 {
     use Dispatchable, SerializesModels;
 

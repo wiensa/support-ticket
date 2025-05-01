@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 /**
@@ -15,13 +16,19 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property string $subject
  * @property string $message
  * @property string $status
+ * @property string $priority
+ * @property string|null $category
+ * @property string|null $assigned_to
  * @property string|null $user_id
  * @property string|null $user_type
+ * @property \Illuminate\Support\Carbon|null $closed_at
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * 
  * @property-read \Illuminate\Database\Eloquent\Model|null $user
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \Wiensa\SupportTicket\Models\TicketReply> $replies
+ * @property-read \Wiensa\SupportTicket\Models\Category|null $categoryRelation
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \Wiensa\SupportTicket\Models\Attachment> $attachments
  */
 class Ticket extends Model
 {
@@ -43,8 +50,12 @@ class Ticket extends Model
         'subject',
         'message',
         'status',
+        'priority',
+        'category',
+        'assigned_to',
         'user_id',
         'user_type',
+        'closed_at',
     ];
 
     /**
@@ -53,6 +64,7 @@ class Ticket extends Model
      * @var array<string, string>
      */
     protected $casts = [
+        'closed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -64,6 +76,14 @@ class Ticket extends Model
     public const STATUS_PENDING = 'pending';
     public const STATUS_RESOLVED = 'resolved';
     public const STATUS_CLOSED = 'closed';
+
+    /**
+     * Ticket priorities
+     */
+    public const PRIORITY_LOW = 'low';
+    public const PRIORITY_MEDIUM = 'medium';
+    public const PRIORITY_HIGH = 'high';
+    public const PRIORITY_URGENT = 'urgent';
 
     /**
      * Get the user that owns the ticket.
@@ -79,6 +99,22 @@ class Ticket extends Model
     public function replies(): HasMany
     {
         return $this->hasMany(TicketReply::class);
+    }
+
+    /**
+     * Get the category of the ticket.
+     */
+    public function categoryRelation(): BelongsTo
+    {
+        return $this->belongsTo(Category::class, 'category');
+    }
+
+    /**
+     * Get the attachments for the ticket.
+     */
+    public function attachments(): MorphMany
+    {
+        return $this->morphMany(Attachment::class, 'attachable');
     }
 
     /**

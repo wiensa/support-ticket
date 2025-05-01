@@ -4,15 +4,50 @@ namespace Wiensa\SupportTicket\Http\Controllers;
 
 use Wiensa\SupportTicket\Http\Requests\CreateTicketRequest;
 use Wiensa\SupportTicket\Http\Requests\ReplyTicketRequest;
+use Wiensa\SupportTicket\Http\Requests\UpdateTicketRequest;
 use Wiensa\SupportTicket\Models\Ticket;
 use Wiensa\SupportTicket\Models\TicketReply;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\View\View;
+use Wiensa\SupportTicket\Models\Category;
+use Wiensa\SupportTicket\Services\TicketService;
+use Wiensa\SupportTicket\Services\AttachmentService;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+use Wiensa\SupportTicket\Events\TicketCreated;
+use Wiensa\SupportTicket\Events\TicketClosed;
 
 class TicketController extends Controller
 {
+    /**
+     * The ticket service instance.
+     *
+     * @var \Wiensa\SupportTicket\Services\TicketService
+     */
+    protected $ticketService;
+
+    /**
+     * The attachment service instance.
+     *
+     * @var \Wiensa\SupportTicket\Services\AttachmentService
+     */
+    protected $attachmentService;
+
+    /**
+     * Create a new controller instance.
+     *
+     * @param \Wiensa\SupportTicket\Services\TicketService $ticketService
+     * @param \Wiensa\SupportTicket\Services\AttachmentService $attachmentService
+     * @return void
+     */
+    public function __construct(TicketService $ticketService, AttachmentService $attachmentService)
+    {
+        $this->ticketService = $ticketService;
+        $this->attachmentService = $attachmentService;
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -20,13 +55,33 @@ class TicketController extends Controller
     {
         $this->authorize('viewAny', Ticket::class);
 
-        $tickets = Ticket::query()
-            ->where('user_id', $request->user()->getKey())
-            ->where('user_type', get_class($request->user()))
-            ->latest()
-            ->paginate(10);
-
-        return view('supportticket::tickets.index', compact('tickets'));
+        $query = Ticket::query();
+        
+        // Filtreler
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+        
+        if ($request->has('category')) {
+            $query->where('category', $request->category);
+        }
+        
+        if ($request->has('priority')) {
+            $query->where('priority', $request->priority);
+        }
+        
+        // Kullanıcıya ait talepleri filtrele
+        if (!$request->user()->can('viewAny', Ticket::class)) {
+            $query->where(function($q) use ($request) {
+                $q->where('user_id', $request->user()->getKey())
+                  ->where('user_type', get_class($request->user()));
+            });
+        }
+        
+        $tickets = $query->latest()->paginate(15);
+        $categories = Category::where('is_active', true)->get();
+        
+        return view('supportticket::tickets.index', compact('tickets', 'categories'));
     }
 
     /**
@@ -36,7 +91,8 @@ class TicketController extends Controller
     {
         $this->authorize('create', Ticket::class);
 
-        return view('supportticket::tickets.create');
+        $categories = Category::where('is_active', true)->get();
+        return view('supportticket::tickets.create', compact('categories'));
     }
 
     /**
@@ -44,18 +100,17 @@ class TicketController extends Controller
      */
     public function store(CreateTicketRequest $request): RedirectResponse
     {
-        $ticket = new Ticket($request->validated());
-        $ticket->status = Ticket::STATUS_OPEN;
-        $ticket->user()->associate($request->user());
-        $ticket->save();
-
-        // Dispatch ticket created event if enabled
-        if (config('supportticket.events.ticket_created', true)) {
-            event(new \Wiensa\SupportTicket\Events\TicketCreated($ticket));
+        $data = $request->validated();
+        
+        // Dosya eklerini ekle
+        if ($request->hasFile('attachments')) {
+            $data['attachments'] = $request->file('attachments');
         }
-
-        return redirect()
-            ->route('supportticket.tickets.show', $ticket)
+        
+        // Ticket service ile talebi oluştur
+        $ticket = $this->ticketService->createTicket($data, $request->user());
+        
+        return redirect()->route('supportticket.tickets.show', $ticket->id)
             ->with('success', __('supportticket::messages.ticket_created'));
     }
 
@@ -66,9 +121,9 @@ class TicketController extends Controller
     {
         $this->authorize('view', $ticket);
 
-        $replies = $ticket->replies()->latest()->get();
+        $ticket->load(['replies', 'categoryRelation', 'attachments']);
 
-        return view('supportticket::tickets.show', compact('ticket', 'replies'));
+        return view('supportticket::tickets.show', compact('ticket'));
     }
 
     /**
@@ -76,23 +131,16 @@ class TicketController extends Controller
      */
     public function reply(ReplyTicketRequest $request, Ticket $ticket): RedirectResponse
     {
-        $reply = new TicketReply($request->validated());
-        $reply->is_admin = false;
-        $reply->user()->associate($request->user());
+        $data = $request->validated();
         
-        $ticket->replies()->save($reply);
-
-        // If ticket was previously closed, reopen it
-        if ($ticket->isClosed()) {
-            $ticket->status = Ticket::STATUS_OPEN;
-            $ticket->save();
+        // Dosya eklerini ekle
+        if ($request->hasFile('attachments')) {
+            $data['attachments'] = $request->file('attachments');
         }
-
-        // Dispatch ticket replied event if enabled
-        if (config('supportticket.events.ticket_replied', true)) {
-            event(new \Wiensa\SupportTicket\Events\TicketReplied($ticket, $reply));
-        }
-
+        
+        // Ticket service ile yanıt ekle
+        $reply = $this->ticketService->addReply($ticket, $data, $request->user(), false);
+        
         return redirect()
             ->route('supportticket.tickets.show', $ticket)
             ->with('success', __('supportticket::messages.reply_added'));
@@ -101,20 +149,80 @@ class TicketController extends Controller
     /**
      * Close the specified ticket.
      */
-    public function close(Ticket $ticket): RedirectResponse
+    public function close(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->authorize('close', $ticket);
 
-        $ticket->status = Ticket::STATUS_CLOSED;
-        $ticket->save();
-
-        // Dispatch ticket closed event if enabled
-        if (config('supportticket.events.ticket_closed', true)) {
-            event(new \Wiensa\SupportTicket\Events\TicketClosed($ticket));
-        }
+        $note = $request->input('note');
+        
+        // Ticket service ile talebi kapat
+        $this->ticketService->closeTicket($ticket, $note, $request->user());
 
         return redirect()
             ->route('supportticket.tickets.show', $ticket)
             ->with('success', __('supportticket::messages.ticket_closed'));
+    }
+
+    /**
+     * Destek talebini güncelleme formu
+     */
+    public function edit(Ticket $ticket)
+    {
+        $this->authorize('update', $ticket);
+        
+        $categories = Category::where('is_active', true)->get();
+        
+        return view('supportticket::tickets.edit', compact('ticket', 'categories'));
+    }
+    
+    /**
+     * Destek talebini güncelle
+     */
+    public function update(UpdateTicketRequest $request, Ticket $ticket)
+    {
+        $data = $request->validated();
+        
+        $oldStatus = $ticket->status;
+        
+        $ticket->fill($data);
+        
+        // Talebi kapatırsa closed_at'i ayarla
+        if ($data['status'] === Ticket::STATUS_CLOSED && $oldStatus !== Ticket::STATUS_CLOSED) {
+            $ticket->closed_at = now();
+        }
+        
+        $ticket->save();
+        
+        return redirect()->route('supportticket.tickets.show', $ticket->id)
+            ->with('success', __('supportticket::messages.ticket_updated'));
+    }
+    
+    /**
+     * Destek talebini sil
+     */
+    public function destroy(Ticket $ticket)
+    {
+        $this->authorize('delete', $ticket);
+        
+        $ticket->delete();
+        
+        return redirect()->route('supportticket.tickets.index')
+            ->with('success', __('supportticket::messages.ticket_deleted'));
+    }
+    
+    /**
+     * Kapalı destek talebini yeniden aç
+     */
+    public function reopen(Request $request, Ticket $ticket)
+    {
+        $this->authorize('update', $ticket);
+        
+        $note = $request->input('note');
+        
+        // Ticket service ile talebi yeniden aç
+        $this->ticketService->reopenTicket($ticket, $note, $request->user());
+        
+        return redirect()->route('supportticket.tickets.show', $ticket->id)
+            ->with('success', __('supportticket::messages.ticket_reopened'));
     }
 } 

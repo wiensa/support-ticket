@@ -4,6 +4,7 @@ namespace Wiensa\SupportTicket\Policies;
 
 use Wiensa\SupportTicket\Models\Ticket;
 use Illuminate\Auth\Access\HandlesAuthorization;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Class TicketPolicy
@@ -16,94 +17,183 @@ class TicketPolicy
     use HandlesAuthorization;
 
     /**
-     * Determine whether the user can view any tickets.
+     * Tüm taleplere erişim
+     *
+     * @param Model $user
+     * @return bool
      */
-    public function viewAny($user): bool
+    public function viewAny(Model $user): bool
     {
-        return $this->checkPermission($user, config('supportticket.permissions.view_tickets')) || 
-               $this->checkPermission($user, config('supportticket.permissions.admin_view_all_tickets'));
-    }
-
-    /**
-     * Determine whether the user can view the ticket.
-     */
-    public function view($user, Ticket $ticket): bool
-    {
-        // Admin can view any ticket
-        if ($this->checkPermission($user, config('supportticket.permissions.admin_view_all_tickets'))) {
+        // Admin kontrolü
+        if (method_exists($user, 'hasRole') && $user->hasRole('admin')) {
             return true;
         }
-
-        // User can view their own tickets
-        if ($this->checkPermission($user, config('supportticket.permissions.view_tickets'))) {
-            return $ticket->user_id === $user->getKey() && $ticket->user_type === get_class($user);
-        }
-
-        return false;
+        
+        // Administrator ya da destek ekibi yetkisine sahip mi?
+        return $this->isAdmin($user);
     }
-
+    
     /**
-     * Determine whether the user can create tickets.
+     * Bir talebi görüntüleme
+     *
+     * @param Model $user
+     * @param Ticket $ticket
+     * @return bool
      */
-    public function create($user): bool
+    public function view(Model $user, Ticket $ticket): bool
     {
-        return $this->checkPermission($user, config('supportticket.permissions.create_tickets'));
-    }
-
-    /**
-     * Determine whether the user can reply to the ticket.
-     */
-    public function reply($user, Ticket $ticket): bool
-    {
-        // Admin can reply to any ticket
-        if ($this->checkPermission($user, config('supportticket.permissions.admin_reply_tickets'))) {
+        // Admin her zaman görüntüleyebilir
+        if ($this->isAdmin($user)) {
             return true;
         }
-
-        // Users can reply to their own tickets if they have permission and the ticket is not closed
-        if ($this->checkPermission($user, config('supportticket.permissions.reply_tickets'))) {
-            return ($ticket->user_id === $user->getKey() && 
-                    $ticket->user_type === get_class($user) &&
-                    !$ticket->isClosed());
-        }
-
-        return false;
-    }
-
-    /**
-     * Determine whether the user can close the ticket.
-     */
-    public function close($user, Ticket $ticket): bool
-    {
-        // Admin can close any ticket
-        if ($this->checkPermission($user, config('supportticket.permissions.admin_close_tickets'))) {
+        
+        // Kullanıcının kendi talebi mi?
+        if ($ticket->user_id == $user->getKey() && $ticket->user_type == get_class($user)) {
             return true;
         }
-
-        // Users can close their own tickets if they have permission
-        if ($this->checkPermission($user, config('supportticket.permissions.close_tickets'))) {
-            return $ticket->user_id === $user->getKey() && $ticket->user_type === get_class($user);
-        }
-
+        
         return false;
     }
-
+    
     /**
-     * Check if the user has the given permission.
+     * Yeni talep oluşturma
+     *
+     * @param Model $user
+     * @return bool
      */
-    protected function checkPermission($user, string $permission): bool
+    public function create(Model $user): bool
     {
-        // If Laravel has permissions feature enabled
-        if (method_exists($user, 'hasPermissionTo')) {
-            return $user->hasPermissionTo($permission);
-        }
-
-        // If Laravel has a custom can method
-        if (method_exists($user, 'can')) {
-            return $user->can($permission);
-        }
-
-        // Default to true if no permission system is implemented
+        // Tüm kullanıcılar talep oluşturabilir 
         return true;
+    }
+    
+    /**
+     * Talebi güncelleme
+     *
+     * @param Model $user
+     * @param Ticket $ticket
+     * @return bool
+     */
+    public function update(Model $user, Ticket $ticket): bool
+    {
+        // Admin her zaman güncelleyebilir
+        if ($this->isAdmin($user)) {
+            return true;
+        }
+        
+        // Kullanıcı kendi talebini güncelleyebilir (sadece açıksa)
+        if ($ticket->user_id == $user->getKey() && $ticket->user_type == get_class($user)) {
+            return $ticket->isOpen();
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Talebi silme
+     *
+     * @param Model $user
+     * @param Ticket $ticket
+     * @return bool
+     */
+    public function delete(Model $user, Ticket $ticket): bool
+    {
+        // Sadece admin silebilir
+        return $this->isAdmin($user);
+    }
+    
+    /**
+     * Talebi kapatma
+     *
+     * @param Model $user
+     * @param Ticket $ticket
+     * @return bool
+     */
+    public function close(Model $user, Ticket $ticket): bool
+    {
+        // Admin her zaman kapatabilir
+        if ($this->isAdmin($user)) {
+            return true;
+        }
+        
+        // Kullanıcı kendi talebini kapatabilir
+        if ($ticket->user_id == $user->getKey() && $ticket->user_type == get_class($user)) {
+            return !$ticket->isClosed();
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Talebe yanıt yazma
+     *
+     * @param Model $user
+     * @param Ticket $ticket
+     * @return bool
+     */
+    public function reply(Model $user, Ticket $ticket): bool
+    {
+        // Admin her zaman yanıt yazabilir
+        if ($this->isAdmin($user)) {
+            return true;
+        }
+        
+        // Kullanıcı kendi talebine yanıt yazabilir (kapalı değilse)
+        if ($ticket->user_id == $user->getKey() && $ticket->user_type == get_class($user)) {
+            return !$ticket->isClosed();
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Admin yanıtı yazabilme
+     *
+     * @param Model $user
+     * @param Ticket $ticket
+     * @return bool
+     */
+    public function adminReply(Model $user, Ticket $ticket): bool
+    {
+        // Sadece admin yanıtı yazabilir
+        return $this->isAdmin($user);
+    }
+    
+    /**
+     * Kullanıcının admin olup olmadığını kontrol et
+     *
+     * @param Model $user
+     * @return bool
+     */
+    protected function isAdmin(Model $user): bool
+    {
+        // Laravel'in built-in bileşenleriyle uyumlu çalışacak şekilde kontroller
+        
+        // Spatie Permission paketi
+        if (method_exists($user, 'hasRole') && $user->hasRole(config('supportticket.admin_role', 'admin'))) {
+            return true;
+        }
+        
+        // is_admin özelliği
+        if (property_exists($user, 'is_admin') && $user->is_admin) {
+            return true;
+        }
+        
+        // admin özelliği
+        if (property_exists($user, 'admin') && $user->admin) {
+            return true;
+        }
+        
+        // admin_type özelliği
+        if (property_exists($user, 'user_type') && $user->user_type === 'admin') {
+            return true;
+        }
+        
+        // can metodu
+        if (method_exists($user, 'can') && $user->can('manage tickets')) {
+            return true;
+        }
+        
+        return false;
     }
 } 

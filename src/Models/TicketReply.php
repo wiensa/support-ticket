@@ -5,6 +5,7 @@ namespace Wiensa\SupportTicket\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 /**
@@ -16,11 +17,14 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property string|null $user_id
  * @property string|null $user_type
  * @property bool $is_admin
+ * @property bool $is_private
+ * @property array|null $attachments
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * 
  * @property-read \Wiensa\SupportTicket\Models\Ticket $ticket
  * @property-read \Illuminate\Database\Eloquent\Model|null $user
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \Wiensa\SupportTicket\Models\Attachment> $fileAttachments
  */
 class TicketReply extends Model
 {
@@ -44,6 +48,8 @@ class TicketReply extends Model
         'user_id',
         'user_type',
         'is_admin',
+        'is_private',
+        'attachments',
     ];
 
     /**
@@ -53,6 +59,8 @@ class TicketReply extends Model
      */
     protected $casts = [
         'is_admin' => 'boolean',
+        'is_private' => 'boolean',
+        'attachments' => 'json',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -71,5 +79,13 @@ class TicketReply extends Model
     public function user(): BelongsTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * Get the attachments for the reply.
+     */
+    public function fileAttachments(): MorphMany
+    {
+        return $this->morphMany(Attachment::class, 'attachable');
     }
 } 

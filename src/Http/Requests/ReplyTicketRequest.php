@@ -28,6 +28,8 @@ class ReplyTicketRequest extends FormRequest
     {
         return [
             'message' => ['required', 'string'],
+            'is_private' => ['sometimes', 'boolean'],
+            'attachments.*' => ['sometimes', 'file', 'max:' . config('supportticket.attachments.max_size', 5120)],
         ];
     }
 
@@ -40,6 +42,7 @@ class ReplyTicketRequest extends FormRequest
     {
         return [
             'message.required' => __('supportticket::validation.reply_required'),
+            'attachments.*.max' => __('supportticket::validation.attachment_max_size'),
         ];
     }
 } 

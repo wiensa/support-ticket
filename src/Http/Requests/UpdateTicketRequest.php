@@ -2,16 +2,21 @@
 
 namespace Wiensa\SupportTicket\Http\Requests;
 
+use Wiensa\SupportTicket\Models\Ticket;
 use Illuminate\Foundation\Http\FormRequest;
 
-class CreateTicketRequest extends FormRequest
+class UpdateTicketRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
      */
     public function authorize(): bool
     {
-        return $this->user() && $this->user()->can('create', \Wiensa\SupportTicket\Models\Ticket::class);
+        $ticket = $this->route('ticket');
+        
+        return $ticket instanceof Ticket && 
+               $this->user() && 
+               $this->user()->can('update', $ticket);
     }
 
     /**
@@ -26,7 +31,7 @@ class CreateTicketRequest extends FormRequest
             'message' => ['required', 'string'],
             'category' => ['nullable', 'exists:support_ticket_categories,id'],
             'priority' => ['required', 'in:low,medium,high,urgent'],
-            'attachments.*' => ['sometimes', 'file', 'max:' . config('supportticket.attachments.max_size', 5120)],
+            'status' => ['required', 'in:open,pending,resolved,closed'],
         ];
     }
 
@@ -43,7 +48,8 @@ class CreateTicketRequest extends FormRequest
             'message.required' => __('supportticket::validation.message_required'),
             'priority.required' => __('supportticket::validation.priority_required'),
             'priority.in' => __('supportticket::validation.priority_in'),
-            'attachments.*.max' => __('supportticket::validation.attachment_max_size'),
+            'status.required' => __('supportticket::validation.status_required'),
+            'status.in' => __('supportticket::validation.status_in'),
         ];
     }
 } 

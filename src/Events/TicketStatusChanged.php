@@ -6,7 +6,7 @@ use Wiensa\SupportTicket\Models\Ticket;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class TicketClosed
+class TicketStatusChanged
 {
     use Dispatchable, SerializesModels;
 
@@ -16,13 +16,20 @@ class TicketClosed
     public $ticket;
 
     /**
+     * @var string
+     */
+    public $oldStatus;
+
+    /**
      * Create a new event instance.
      *
      * @param Ticket $ticket
+     * @param string $oldStatus
      * @return void
      */
-    public function __construct(Ticket $ticket)
+    public function __construct(Ticket $ticket, string $oldStatus)
     {
         $this->ticket = $ticket;
+        $this->oldStatus = $oldStatus;
     }
 } 

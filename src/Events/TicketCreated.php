@@ -11,14 +11,15 @@ class TicketCreated
     use Dispatchable, SerializesModels;
 
     /**
-     * The ticket instance.
-     *
-     * @var \Wiensa\SupportTicket\Models\Ticket
+     * @var Ticket
      */
     public $ticket;
 
     /**
      * Create a new event instance.
+     *
+     * @param Ticket $ticket
+     * @return void
      */
     public function __construct(Ticket $ticket)
     {
